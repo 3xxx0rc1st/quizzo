@@ -1,0 +1,58 @@
+services:
+  db:
+    build:
+      context: ./docker/postgres
+    container_name: quizzo-postgres
+    environment:
+      POSTGRES_DB: quizzo
+      POSTGRES_USER: quizzo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quizzo_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - quizzo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/node/Dockerfile
+    container_name: quizzo-node
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      DATABASE_URL: postgresql://quizzo:${POSTGRES_PASSWORD:-quizzo_dev}@db:5432/quizzo
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src:/app/src:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000', r => process.exit(r.statusCode >= 200 && r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: ./docker/nginx
+    container_name: quizzo-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  quizzo_pgdata:
